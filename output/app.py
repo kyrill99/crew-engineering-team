@@ -1,102 +1,381 @@
+from __future__ import annotations
+
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, List, Optional
+
 import gradio as gr
-from accounts import Account, AccountError, InsufficientFundsError, InsufficientHoldingsError, UnknownSymbolError
 
-# Create a single user account for demonstration
-account = Account(account_id="123456", owner_name="Demo User")
+from account_service import AccountService
+from factory import AccountServiceFactory
+from price_provider import FixedPriceProvider, PriceProvider, PriceProviderError
 
-def create_account(owner_name):
-    global account
-    account = Account(account_id="123456", owner_name=owner_name)
-    return f"Account created for {owner_name}"
-
-def deposit_funds(amount):
+try:
+    from account_state import AccountError, TransactionType
+except Exception:
     try:
-        account.deposit(float(amount))
-        return f"Deposited {amount}. Current balance: {account.get_cash_balance()}"
-    except AccountError as e:
-        return str(e)
+        from errors import AccountError
+    except Exception:
+        from models import AccountError, TransactionType  # type: ignore
 
-def withdraw_funds(amount):
+
+SUPPORTED_SYMBOLS = ["AAPL", "TSLA", "GOOGL"]
+
+
+def _fmt_decimal(value: Any) -> str:
     try:
-        account.withdraw(float(amount))
-        return f"Withdrew {amount}. Current balance: {account.get_cash_balance()}"
-    except AccountError as e:
-        return str(e)
-    
-def buy_shares(symbol, quantity):
+        if value is None:
+            return "-"
+        if isinstance(value, Decimal):
+            return f"{value.quantize(Decimal('0.01')):.2f}"
+        return f"{Decimal(str(value)).quantize(Decimal('0.01')):.2f}"
+    except Exception:
+        return str(value)
+
+
+def _safe_decimal(text: str) -> Decimal:
     try:
-        account.buy_shares(symbol, int(quantity))
-        return f"Bought {quantity} shares of {symbol}. Holdings: {account.get_holdings()}"
-    except AccountError as e:
-        return str(e)
+        return Decimal(str(text).strip())
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise AccountError("Invalid numeric value.", "INVALID_VALUE") from exc
 
-def sell_shares(symbol, quantity):
+
+def _safe_int(text: str) -> int:
     try:
-        account.sell_shares(symbol, int(quantity))
-        return f"Sold {quantity} shares of {symbol}. Holdings: {account.get_holdings()}"
-    except AccountError as e:
-        return str(e)
+        value = int(str(text).strip())
+    except (ValueError, TypeError) as exc:
+        raise AccountError("Invalid integer value.", "INVALID_VALUE") from exc
+    return value
 
-def get_portfolio_value():
-    return f"Total portfolio value: {account.get_portfolio_value()}"
 
-def get_profit_loss():
-    return f"Profit/Loss: {account.get_profit_loss()}"
+def _transaction_to_row(tx: Any) -> List[str]:
+    tx_type = getattr(tx, "transaction_type", None)
+    timestamp = getattr(tx, "timestamp", None)
+    return [
+        str(tx_type.value if hasattr(tx_type, "value") else tx_type),
+        timestamp.isoformat(sep=" ", timespec="seconds") if timestamp else "-",
+        str(getattr(tx, "account_id", "-")),
+        _fmt_decimal(getattr(tx, "amount", None)),
+        _fmt_decimal(getattr(tx, "symbol", None)),
+        str(getattr(tx, "quantity", "-")),
+        _fmt_decimal(getattr(tx, "unit_price", None)),
+        _fmt_decimal(getattr(tx, "total_amount", None)),
+        _fmt_decimal(getattr(tx, "post_cash_balance", None)),
+        str(getattr(tx, "post_holding_quantity", "-")),
+    ]
 
-def get_holdings():
-    return f"Holdings: {account.get_holdings()}"
 
-def get_transaction_history():
-    history = "\n".join([str(txn.to_dict()) for txn in account.get_transaction_history()])
-    return f"Transaction history:\n{history}"
+def _build_transactions_table(transactions: List[Any]) -> List[List[str]]:
+    return [_transaction_to_row(tx) for tx in transactions]
 
-with gr.Blocks() as demo:
-    gr.Markdown("## Trading Simulation Platform")
 
-    with gr.Tab("Account"):
-        owner_name_input = gr.Textbox(label="Owner Name", placeholder="Enter owner name")
-        create_button = gr.Button("Create Account")
-        create_result = gr.Textbox(label="Result")
-        create_button.click(fn=create_account, inputs=owner_name_input, outputs=create_result)
-        
-        deposit_input = gr.Number(label="Deposit Amount", value=0.0)
-        deposit_button = gr.Button("Deposit")
-        deposit_result = gr.Textbox(label="Deposit Result")
-        deposit_button.click(fn=deposit_funds, inputs=deposit_input, outputs=deposit_result)
-        
-        withdraw_input = gr.Number(label="Withdraw Amount", value=0.0)
-        withdraw_button = gr.Button("Withdraw")
-        withdraw_result = gr.Textbox(label="Withdraw Result")
-        withdraw_button.click(fn=withdraw_funds, inputs=withdraw_input, outputs=withdraw_result)
-    
-    with gr.Tab("Trade"):
-        buy_symbol_input = gr.Textbox(label="Buy Symbol", placeholder="AAPL, TSLA, GOOGL")
-        buy_quantity_input = gr.Number(label="Quantity", value=1, precision=0)
-        buy_button = gr.Button("Buy Shares")
-        buy_result = gr.Textbox(label="Buy Result")
-        buy_button.click(fn=buy_shares, inputs=[buy_symbol_input, buy_quantity_input], outputs=buy_result)
-        
-        sell_symbol_input = gr.Textbox(label="Sell Symbol", placeholder="AAPL, TSLA, GOOGL")
-        sell_quantity_input = gr.Number(label="Quantity", value=1, precision=0)
-        sell_button = gr.Button("Sell Shares")
-        sell_result = gr.Textbox(label="Sell Result")
-        sell_button.click(fn=sell_shares, inputs=[sell_symbol_input, sell_quantity_input], outputs=sell_result)
-    
-    with gr.Tab("Reports"):
-        portfolio_value_button = gr.Button("Get Portfolio Value")
-        portfolio_value_result = gr.Textbox(label="Portfolio Value")
-        portfolio_value_button.click(fn=get_portfolio_value, outputs=portfolio_value_result)
-        
-        profit_loss_button = gr.Button("Get Profit/Loss")
-        profit_loss_result = gr.Textbox(label="Profit/Loss")
-        profit_loss_button.click(fn=get_profit_loss, outputs=profit_loss_result)
+def _get_provider_from_choice(choice: str, custom_prices: Dict[str, Any]) -> PriceProvider:
+    if choice == "Fixed test prices":
+        return FixedPriceProvider()
+    if choice == "Custom prices":
+        prices: Dict[str, Decimal] = {}
+        for symbol in SUPPORTED_SYMBOLS:
+            raw = custom_prices.get(symbol, "").strip()
+            if raw:
+                prices[symbol] = _safe_decimal(raw)
+        if not prices:
+            prices = FixedPriceProvider.DEFAULT_PRICES
+        return FixedPriceProvider(prices=prices)
+    return FixedPriceProvider()
 
-        holdings_button = gr.Button("Get Holdings")
-        holdings_result = gr.Textbox(label="Holdings")
-        holdings_button.click(fn=get_holdings, outputs=holdings_result)
-        
-        transaction_history_button = gr.Button("Get Transaction History")
-        transaction_history_result = gr.Textbox(label="Transaction History")
-        transaction_history_button.click(fn=get_transaction_history, outputs=transaction_history_result)
 
-demo.launch()
+def _ensure_service_state(state: Optional[AccountService]) -> AccountService:
+    if state is None:
+        raise AccountError("Please create an account first.", "ACCOUNT_NOT_FOUND")
+    return state
+
+
+def create_account(account_id: str, price_mode: str, aapl: str, tsla: str, googl: str):
+    custom_prices = {"AAPL": aapl, "TSLA": tsla, "GOOGL": googl}
+    provider = _get_provider_from_choice(price_mode, custom_prices)
+    factory = AccountServiceFactory()
+    service = factory.create_with_price_provider(account_id.strip(), provider)
+
+    holdings = service.get_holdings()
+    transactions = service.list_transactions()
+    portfolio_value = service.get_portfolio_value()
+    profit_loss = service.get_profit_loss()
+
+    return (
+        service,
+        f"Account created: {account_id.strip()}",
+        _summary_text(service, portfolio_value, profit_loss),
+        _holdings_text(holdings),
+        _build_transactions_table(transactions),
+    )
+
+
+def deposit_funds(service: Optional[AccountService], amount: str):
+    service = _ensure_service_state(service)
+    tx = service.deposit(_safe_decimal(amount))
+    return _post_action_outputs(service, f"Deposited {_fmt_decimal(tx.amount)}")
+
+
+def withdraw_funds(service: Optional[AccountService], amount: str):
+    service = _ensure_service_state(service)
+    tx = service.withdraw(_safe_decimal(amount))
+    return _post_action_outputs(service, f"Withdrew {_fmt_decimal(tx.amount)}")
+
+
+def buy_shares(service: Optional[AccountService], symbol: str, quantity: str):
+    service = _ensure_service_state(service)
+    tx = service.buy_shares(symbol, _safe_int(quantity))
+    return _post_action_outputs(
+        service,
+        f"Bought {tx.quantity} {tx.symbol} at {_fmt_decimal(tx.unit_price)} each",
+    )
+
+
+def sell_shares(service: Optional[AccountService], symbol: str, quantity: str):
+    service = _ensure_service_state(service)
+    tx = service.sell_shares(symbol, _safe_int(quantity))
+    return _post_action_outputs(
+        service,
+        f"Sold {tx.quantity} {tx.symbol} at {_fmt_decimal(tx.unit_price)} each",
+    )
+
+
+def refresh_reports(service: Optional[AccountService]):
+    service = _ensure_service_state(service)
+    return _post_action_outputs(service, "Refreshed reports")
+
+
+def _post_action_outputs(service: AccountService, message: str):
+    portfolio_value = service.get_portfolio_value()
+    profit_loss = service.get_profit_loss()
+    holdings = service.get_holdings()
+    transactions = service.list_transactions()
+
+    return (
+        service,
+        message,
+        _summary_text(service, portfolio_value, profit_loss),
+        _holdings_text(holdings),
+        _build_transactions_table(transactions),
+    )
+
+
+def _summary_text(service: AccountService, portfolio_value: Decimal, profit_loss: Decimal) -> str:
+    state = service._require_account()  # demo app; read-only use for display
+    cash = getattr(state, "cash_balance", Decimal("0"))
+    initial = getattr(state, "initial_deposit_basis", Decimal("0"))
+    holdings = getattr(state, "holdings", {})
+    holding_count = len(holdings)
+    total_shares = sum(int(v) for v in holdings.values())
+
+    return (
+        f"Account ID: {state.account_id}\n"
+        f"Cash balance: {_fmt_decimal(cash)}\n"
+        f"Initial deposit basis: {_fmt_decimal(initial)}\n"
+        f"Portfolio value: {_fmt_decimal(portfolio_value)}\n"
+        f"Profit / Loss: {_fmt_decimal(profit_loss)}\n"
+        f"Held symbols: {holding_count}\n"
+        f"Total shares held: {total_shares}"
+    )
+
+
+def _holdings_text(holdings: Dict[str, int]) -> str:
+    if not holdings:
+        return "No holdings yet."
+    lines = ["Current holdings:"]
+    for symbol, quantity in sorted(holdings.items()):
+        lines.append(f"- {symbol}: {quantity}")
+    return "\n".join(lines)
+
+
+def _bootstrap_demo_service() -> AccountService:
+    factory = AccountServiceFactory()
+    return factory.create_with_fixed_prices("demo-user")
+
+
+with gr.Blocks(title="Trading Simulation Account Demo") as demo:
+    gr.Markdown(
+        "# Trading Simulation Account Demo\n"
+        "Simple prototype for account creation, cash management, trading, and reporting.\n"
+        "This demo assumes a single user and uses fixed test prices for AAPL, TSLA, and GOOGL by default."
+    )
+
+    service_state = gr.State(value=None)
+
+    with gr.Row():
+        account_id = gr.Textbox(label="Account ID", value="demo-user")
+        price_mode = gr.Dropdown(
+            label="Price Provider",
+            choices=["Fixed test prices", "Custom prices"],
+            value="Fixed test prices",
+        )
+
+    with gr.Accordion("Optional custom fixed prices", open=False):
+        gr.Markdown("Used only if Price Provider is set to Custom prices.")
+        with gr.Row():
+            aapl_price = gr.Textbox(label="AAPL", value="190.00")
+            tsla_price = gr.Textbox(label="TSLA", value="250.00")
+            googl_price = gr.Textbox(label="GOOGL", value="140.00")
+
+    with gr.Row():
+        create_btn = gr.Button("Create / Reset Account", variant="primary")
+        refresh_btn = gr.Button("Refresh Reports")
+
+    status = gr.Textbox(label="Status", interactive=False)
+    summary = gr.Textbox(label="Account Summary", lines=7, interactive=False)
+    holdings = gr.Textbox(label="Holdings", lines=6, interactive=False)
+
+    transactions = gr.Dataframe(
+        headers=[
+            "Type",
+            "Timestamp",
+            "Account",
+            "Amount",
+            "Symbol",
+            "Quantity",
+            "Unit Price",
+            "Total",
+            "Post Cash",
+            "Post Holding Qty",
+        ],
+        datatype=["str"] * 10,
+        label="Transaction History",
+        interactive=False,
+        wrap=True,
+    )
+
+    gr.Markdown("## Actions")
+
+    with gr.Row():
+        deposit_amount = gr.Textbox(label="Deposit Amount", value="1000")
+        withdraw_amount = gr.Textbox(label="Withdraw Amount", value="100")
+
+    with gr.Row():
+        deposit_btn = gr.Button("Deposit")
+        withdraw_btn = gr.Button("Withdraw")
+
+    with gr.Row():
+        trade_symbol = gr.Dropdown(label="Symbol", choices=SUPPORTED_SYMBOLS, value="AAPL")
+        trade_quantity = gr.Textbox(label="Quantity", value="1")
+
+    with gr.Row():
+        buy_btn = gr.Button("Buy Shares", variant="primary")
+        sell_btn = gr.Button("Sell Shares")
+
+    def _create_wrapper(account_id, price_mode, aapl, tsla, googl):
+        try:
+            return create_account(account_id, price_mode, aapl, tsla, googl)
+        except Exception as exc:
+            return (
+                None,
+                f"Error: {exc}",
+                "",
+                "",
+                [],
+            )
+
+    def _deposit_wrapper(service, amount):
+        try:
+            return deposit_funds(service, amount)
+        except Exception as exc:
+            return (
+                service,
+                f"Error: {exc}",
+                "",
+                "",
+                _build_transactions_table(service.list_transactions()) if service else [],
+            )
+
+    def _withdraw_wrapper(service, amount):
+        try:
+            return withdraw_funds(service, amount)
+        except Exception as exc:
+            return (
+                service,
+                f"Error: {exc}",
+                "",
+                "",
+                _build_transactions_table(service.list_transactions()) if service else [],
+            )
+
+    def _buy_wrapper(service, symbol, quantity):
+        try:
+            return buy_shares(service, symbol, quantity)
+        except Exception as exc:
+            return (
+                service,
+                f"Error: {exc}",
+                "",
+                "",
+                _build_transactions_table(service.list_transactions()) if service else [],
+            )
+
+    def _sell_wrapper(service, symbol, quantity):
+        try:
+            return sell_shares(service, symbol, quantity)
+        except Exception as exc:
+            return (
+                service,
+                f"Error: {exc}",
+                "",
+                "",
+                _build_transactions_table(service.list_transactions()) if service else [],
+            )
+
+    def _refresh_wrapper(service):
+        try:
+            return refresh_reports(service)
+        except Exception as exc:
+            return (
+                service,
+                f"Error: {exc}",
+                "",
+                "",
+                _build_transactions_table(service.list_transactions()) if service else [],
+            )
+
+    create_btn.click(
+        _create_wrapper,
+        inputs=[account_id, price_mode, aapl_price, tsla_price, googl_price],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    deposit_btn.click(
+        _deposit_wrapper,
+        inputs=[service_state, deposit_amount],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    withdraw_btn.click(
+        _withdraw_wrapper,
+        inputs=[service_state, withdraw_amount],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    buy_btn.click(
+        _buy_wrapper,
+        inputs=[service_state, trade_symbol, trade_quantity],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    sell_btn.click(
+        _sell_wrapper,
+        inputs=[service_state, trade_symbol, trade_quantity],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    refresh_btn.click(
+        _refresh_wrapper,
+        inputs=[service_state],
+        outputs=[service_state, status, summary, holdings, transactions],
+    )
+
+    demo.load(
+        lambda: _bootstrap_demo_service(),
+        inputs=None,
+        outputs=service_state,
+    )
+
+if __name__ == "__main__":
+    demo.queue()
+    demo.launch()

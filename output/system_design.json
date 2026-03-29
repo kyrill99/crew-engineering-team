@@ -1,0 +1,133 @@
+{
+  "system_overview": "A modular, testable Python trading simulation account management system that supports account creation, cash deposits and withdrawals, share buy/sell operations using an injected price lookup function, current portfolio valuation, profit/loss computation relative to the first deposit, holdings reporting, and immutable transaction history. The design separates validation, domain models, pricing access, account state management, and service orchestration so each concern can be independently tested. Invalid operations fail atomically with clear domain errors and no state mutation.",
+  "modules": [
+    {
+      "module_name": "errors.py",
+      "class_name": "AccountError",
+      "description": "Defines the domain-specific exception hierarchy and error codes used throughout the account management system to signal invalid operations without mutating state.",
+      "key_methods": [
+        "__init__(self, message: str, code: str) -> None"
+      ],
+      "dependencies": []
+    },
+    {
+      "module_name": "models.py",
+      "class_name": "Transaction",
+      "description": "Immutable domain models for accounts, holdings, and transaction records. Represents the single source of truth for persisted in-memory account state and transaction audit data.",
+      "key_methods": [
+        "create_account_created(self, account_id: str, timestamp: datetime) -> Transaction",
+        "create_deposit(self, amount: Decimal, post_cash_balance: Decimal, timestamp: datetime) -> Transaction",
+        "create_withdrawal(self, amount: Decimal, post_cash_balance: Decimal, timestamp: datetime) -> Transaction",
+        "create_buy(self, symbol: str, quantity: int, unit_price: Decimal, total_amount: Decimal, post_cash_balance: Decimal, post_holding_quantity: int, timestamp: datetime) -> Transaction",
+        "create_sell(self, symbol: str, quantity: int, unit_price: Decimal, total_amount: Decimal, post_cash_balance: Decimal, post_holding_quantity: int, timestamp: datetime) -> Transaction"
+      ],
+      "dependencies": []
+    },
+    {
+      "module_name": "price_provider.py",
+      "class_name": "PriceProvider",
+      "description": "Abstracts market price access behind a stable interface so core business logic depends only on a callable price source. This module enables easy replacement of the real price source with a fixed test implementation.",
+      "key_methods": [
+        "get_share_price(self, symbol: str) -> Decimal"
+      ],
+      "dependencies": []
+    },
+    {
+      "module_name": "fixed_price_provider.py",
+      "class_name": "FixedPriceProvider",
+      "description": "Test implementation of the pricing interface returning deterministic fixed prices for supported symbols such as AAPL, TSLA, and GOOGL. Suitable for unit tests and scenario validation.",
+      "key_methods": [
+        "get_share_price(self, symbol: str) -> Decimal"
+      ],
+      "dependencies": [
+        "price_provider.py"
+      ]
+    },
+    {
+      "module_name": "validation.py",
+      "class_name": "AccountValidator",
+      "description": "Centralizes input and business rule validation for amounts, quantities, symbols, and state-dependent constraints such as sufficient cash or shares. Keeps mutation logic free of validation concerns.",
+      "key_methods": [
+        "validate_positive_amount(self, amount: Decimal) -> None",
+        "validate_positive_integer_quantity(self, quantity: int) -> None",
+        "validate_symbol_price_available(self, symbol: str, price_lookup: Callable[[str], Decimal]) -> Decimal",
+        "validate_sufficient_cash(self, cash_balance: Decimal, required: Decimal) -> None",
+        "validate_sufficient_shares(self, held_quantity: int, requested_quantity: int) -> None"
+      ],
+      "dependencies": [
+        "errors.py"
+      ]
+    },
+    {
+      "module_name": "account_state.py",
+      "class_name": "AccountState",
+      "description": "Encapsulates mutable account state: cash balance, initial deposit basis, holdings, and transaction history. Provides atomic state transition methods that assume inputs have already been validated.",
+      "key_methods": [
+        "__init__(self, account_id: str) -> None",
+        "apply_deposit(self, amount: Decimal, timestamp: datetime) -> Transaction",
+        "apply_withdrawal(self, amount: Decimal, timestamp: datetime) -> Transaction",
+        "apply_buy(self, symbol: str, quantity: int, unit_price: Decimal, timestamp: datetime) -> Transaction",
+        "apply_sell(self, symbol: str, quantity: int, unit_price: Decimal, timestamp: datetime) -> Transaction",
+        "get_holding_quantity(self, symbol: str) -> int",
+        "get_holdings(self) -> Dict[str, int]",
+        "get_transactions(self) -> List[Transaction]"
+      ],
+      "dependencies": [
+        "models.py",
+        "errors.py"
+      ]
+    },
+    {
+      "module_name": "portfolio_service.py",
+      "class_name": "PortfolioService",
+      "description": "Computes derived account views such as current portfolio value, holdings valuation, and profit/loss using current market prices provided by the price provider. Contains no mutation logic, making it straightforward to test deterministically.",
+      "key_methods": [
+        "calculate_portfolio_value(self, state: AccountState) -> Decimal",
+        "calculate_holdings_value(self, state: AccountState) -> Decimal",
+        "calculate_profit_loss(self, state: AccountState) -> Decimal",
+        "build_holdings_report(self, state: AccountState) -> List[Dict[str, Any]]"
+      ],
+      "dependencies": [
+        "account_state.py",
+        "price_provider.py"
+      ]
+    },
+    {
+      "module_name": "account_service.py",
+      "class_name": "AccountService",
+      "description": "Application-facing service that orchestrates account creation, deposits, withdrawals, buy/sell operations, and read-only reporting. It coordinates validation, pricing, and state mutation while ensuring atomicity and consistent error handling.",
+      "key_methods": [
+        "create_account(self, account_id: str) -> None",
+        "deposit(self, amount: Decimal) -> Transaction",
+        "withdraw(self, amount: Decimal) -> Transaction",
+        "buy_shares(self, symbol: str, quantity: int) -> Transaction",
+        "sell_shares(self, symbol: str, quantity: int) -> Transaction",
+        "get_holdings(self) -> Dict[str, int]",
+        "get_portfolio_value(self) -> Decimal",
+        "get_profit_loss(self) -> Decimal",
+        "list_transactions(self) -> List[Transaction]"
+      ],
+      "dependencies": [
+        "account_state.py",
+        "validation.py",
+        "portfolio_service.py",
+        "price_provider.py",
+        "errors.py"
+      ]
+    },
+    {
+      "module_name": "factory.py",
+      "class_name": "AccountServiceFactory",
+      "description": "Creates fully wired service instances with either the fixed test price provider or a real injected provider. Improves testability by centralizing dependency assembly and keeping module wiring out of business logic.",
+      "key_methods": [
+        "create_with_fixed_prices(self, account_id: str) -> AccountService",
+        "create_with_price_provider(self, account_id: str, price_provider: PriceProvider) -> AccountService"
+      ],
+      "dependencies": [
+        "account_service.py",
+        "fixed_price_provider.py",
+        "price_provider.py"
+      ]
+    }
+  ]
+}
