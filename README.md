@@ -1,6 +1,6 @@
 # AI Engineering Team
 
-An autonomous multi-agent software engineering team built with [CrewAI](https://crewai.com). Give it a plain-English description of a system you want built, and the crew designs, implements, tests, and writes a UI for it — producing runnable Python code with no human intervention.
+An autonomous multi-agent software engineering team built with [CrewAI](https://crewai.com). Give it a plain-English description of a system you want built, and the crew designs, implements, tests, and writes a UI for it while producing runnable Python code with no human intervention.
 
 ---
 
@@ -12,7 +12,7 @@ The crew takes a set of requirements and runs a two-phase pipeline:
 A Business Analyst refines the raw requirements, then an Engineering Lead decomposes them into a structured multi-module system design (a typed `SystemDesign` Pydantic object listing every module, class, key methods, and inter-module dependencies).
 
 **Phase 2 — Build**
-A Backend Engineer implements each module in topological dependency order. Once all modules are built, a Frontend Engineer writes a Gradio UI and a Test Engineer writes a comprehensive unit-test suite — both with full context of every implemented module.
+A Backend Engineer implements each module in topological dependency order. Once all modules are built, a Frontend Engineer writes a Gradio UI and a Test Engineer writes a comprehensive unit-test suite, both with full context of every implemented module.
 
 ```
 Requirements (plain English)
@@ -47,13 +47,13 @@ Requirements (plain English)
 
 ## Agents
 
-| Agent | Model | Responsibility |
-|---|---|---|
-| **Business Analyst** | gpt-5.4-mini | Refines raw requirements into an unambiguous spec |
-| **Engineering Lead** | gpt-5.4-mini | Decomposes the spec into a structured multi-module design |
-| **Backend Engineer** | gpt-5.4-mini | Implements each Python module (with Docker code execution) |
-| **Frontend Engineer** | gpt-5.4-mini | Writes a Gradio UI that imports from all backend modules |
-| **Test Engineer** | gpt-5.4-mini | Writes a full unit-test suite covering all modules |
+| Agent                 | Model        | Responsibility                                             |
+| --------------------- | ------------ | ---------------------------------------------------------- |
+| **Business Analyst**  | gpt-5.4-mini | Refines raw requirements into an unambiguous spec          |
+| **Engineering Lead**  | gpt-5.4-mini | Decomposes the spec into a structured multi-module design  |
+| **Backend Engineer**  | gpt-5.4-mini | Implements each Python module (with Docker code execution) |
+| **Frontend Engineer** | gpt-5.4-mini | Writes a Gradio UI that imports from all backend modules   |
+| **Test Engineer**     | gpt-5.4-mini | Writes a full unit-test suite covering all modules         |
 
 ---
 
@@ -73,7 +73,7 @@ src/engineering_team/
 ```
 
 **Why two task config files?**
-CrewAI's `@CrewBase` decorator auto-discovers every task in `tasks.yaml` and tries to map each `agent` field to a method on the crew class. `PlanningCrew` only knows about `business_analyst` and `engineering_lead` — if it saw `frontend_engineer` or `test_engineer` in the same file it would crash. Keeping build-phase templates in `build_tasks.yaml` means `@CrewBase` never touches them; `BuildCrew` loads that file manually and fills in the `{placeholder}` slots at runtime.
+CrewAI's `@CrewBase` decorator auto-discovers every task in `tasks.yaml` and tries to map each `agent` field to a method on the crew class. `PlanningCrew` only knows about `business_analyst` and `engineering_lead`, if it saw `frontend_engineer` or `test_engineer` in the same file it would crash. Keeping build-phase templates in `build_tasks.yaml` means `@CrewBase` never touches them; `BuildCrew` loads that file manually and fills in the `{placeholder}` slots at runtime.
 
 ### Key design: structured output + dynamic task creation
 
@@ -94,7 +94,7 @@ class SystemDesign(BaseModel):
 
 `BuildCrew` reads this at runtime and constructs one CrewAI `Task` per module, performing a topological sort on `dependencies` so that each module's context tasks are ready before it runs. The Frontend and Test tasks receive every backend task as context, giving them full visibility of the implemented code.
 
-This means the crew adapts to whatever complexity the requirements demand — a 1-module system and a 10-module system run through exactly the same code path.
+This means the crew adapts to whatever complexity the requirements demand, a 1-module system and a 10-module system run through exactly the same code path.
 
 ---
 
@@ -102,15 +102,15 @@ This means the crew adapts to whatever complexity the requirements demand — a 
 
 Running the included trading platform example (`main.py`) produces:
 
-| Output file | Description |
-|---|---|
-| `output/requirements_spec.md` | Refined requirements from the Business Analyst |
-| `output/system_design.json` | Structured design with all modules listed |
-| `output/accounts.py` | Backend module with `Account` class, validation, and transaction history |
-| `output/app.py` | Gradio UI — deposit, withdraw, buy/sell shares, view portfolio |
-| `output/test_suite.py` | Unit tests covering all methods, edge cases, and error conditions |
+| Output file                   | Description                                                              |
+| ----------------------------- | ------------------------------------------------------------------------ |
+| `output/requirements_spec.md` | Refined requirements from the Business Analyst                           |
+| `output/system_design.json`   | Structured design with all modules listed                                |
+| `output/accounts.py`          | Backend module with `Account` class, validation, and transaction history |
+| `output/app.py`               | Gradio UI — deposit, withdraw, buy/sell shares, view portfolio           |
+| `output/test_suite.py`        | Unit tests covering all methods, edge cases, and error conditions        |
 
-The generated `accounts.py` includes a clean exception hierarchy, dataclass-based transaction records, and a `get_share_price()` stub for AAPL, TSLA, and GOOGL — all authored entirely by the agents.
+The generated `accounts.py` includes a clean exception hierarchy, dataclass-based transaction records, and a `get_share_price()` stub for AAPL, TSLA, and GOOGL, all authored entirely by the agents.
 
 ---
 
@@ -197,6 +197,7 @@ build_result = build_crew_instance.build_crew().kickoff()
 ```
 
 Internally, `build_crew()`:
+
 1. Loads task templates from `config/build_tasks.yaml`
 2. Topologically sorts modules by their `dependencies` field
 3. For each module, fills the `code_task` template with `{module_name}`, `{class_name}`, `{key_methods}` etc. and creates a `Task`
@@ -231,12 +232,12 @@ crew-engineering-team/
 
 ## Dependencies
 
-| Package | Purpose |
-|---|---|
-| `crewai[tools]>=0.108.0` | Multi-agent framework |
-| `gradio>=5.22.0` | Generated UI runtime |
-| `litellm<1.82.6` | LLM abstraction layer |
-| `pydantic` | Structured agent outputs |
+| Package                  | Purpose                  |
+| ------------------------ | ------------------------ |
+| `crewai[tools]>=0.108.0` | Multi-agent framework    |
+| `gradio>=5.22.0`         | Generated UI runtime     |
+| `litellm<1.82.6`         | LLM abstraction layer    |
+| `pydantic`               | Structured agent outputs |
 
 ---
 
