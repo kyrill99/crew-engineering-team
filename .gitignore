@@ -1,4 +1,23 @@
+# Secrets
 .env
+
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual environment
+.venv/
+
+# OS
 .DS_Store
+Thumbs.db
+
+# Personal / internal notes
+knowledge/
+improvements.md
+
+# CrewAI example outputs (keep output/ tracked as showcase, but not bytecode)
 example_*
