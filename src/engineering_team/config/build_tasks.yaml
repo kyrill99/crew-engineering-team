@@ -1,0 +1,51 @@
+code_task:
+  description: >
+    Implement the Python module '{module_name}' containing the class '{class_name}'.
+
+    Module description: {description}
+
+    Key methods to implement:
+    {key_methods}
+
+    The module must be completely self-contained and ready to be tested or have a UI built for it.
+    Overall system requirements for context: {requirements}
+  expected_output: >
+    A complete, runnable Python module '{module_name}'.
+    IMPORTANT: Output ONLY the raw Python code without any markdown formatting,
+    code block delimiters, or backticks. The output should be valid Python that can
+    be saved to a file and executed directly.
+  output_file: output/{module_name}
+
+
+frontend_task:
+  description: >
+    Write a Gradio UI in app.py that demonstrates this multi-module system:
+    {module_summary}
+
+    app.py must be in the same directory as all backend modules and import from them.
+    Keep the UI very simple — just a prototype. Assume there is only 1 user.
+    System requirements: {requirements}
+  expected_output: >
+    A complete, runnable app.py that imports from the backend modules and provides
+    a simple Gradio UI demonstrating the system.
+    IMPORTANT: Output ONLY the raw Python code without any markdown formatting,
+    code block delimiters, or backticks. The output should be valid Python that can
+    be saved to a file and executed directly.
+  output_file: output/app.py
+
+
+test_task:
+  description: >
+    Write comprehensive unit tests for all modules in this system:
+    {module_summary}
+
+    Put all tests in a single test_suite.py in the same directory as the backend modules.
+    Cover key functionality, edge cases, and error conditions for every module.
+    System requirements: {requirements}
+  expected_output: >
+    A complete, runnable test_suite.py that imports from all backend modules and tests
+    them thoroughly.
+    IMPORTANT: Output ONLY the raw Python code without any markdown formatting,
+    code block delimiters, or backticks. The output should be valid Python that can
+    be saved to a file and executed directly.
+  output_file: output/test_suite.py

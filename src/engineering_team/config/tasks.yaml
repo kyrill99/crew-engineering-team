@@ -1,50 +1,38 @@
+requirements_task:
+  description: >
+    Analyse the following raw requirements and produce a refined requirements specification.
+    Identify: functional requirements, non-functional requirements, constraints, and edge cases.
+    Resolve ambiguities and produce a document the engineering lead can use directly.
+    Raw requirements: {requirements}
+  expected_output: >
+    A structured requirements specification in markdown covering functional requirements,
+    non-functional requirements, constraints, and edge cases. Clear and unambiguous.
+  agent: business_analyst
+  output_file: output/requirements_spec.md
+
+
 design_task:
   description: >
-    Take the high level requirements described here and prepare a detailed design for the engineer;
-    everything should be in 1 python module, but outline the classes and methods in the module.
-    Here are the requirements: {requirements}
-    IMPORTANT: Only output the design in markdown format, laying out in detail the classes and functions in the module, describing the functionality.
+    Using the refined requirements specification, design a complete multi-module Python system.
+    Identify all necessary modules (one file per concern), their classes, key methods,
+    and inter-module dependencies. Every module should be independently testable.
+    Output a valid JSON object matching the SystemDesign schema:
+    {{
+      "system_overview": "...",
+      "modules": [
+        {{
+          "module_name": "foo.py",
+          "class_name": "Foo",
+          "description": "...",
+          "key_methods": ["method_one(self, arg) -> ReturnType", "..."],
+          "dependencies": []
+        }}
+      ]
+    }}
+    IMPORTANT: Output ONLY the raw JSON object — no markdown, no code fences, no extra text.
   expected_output: >
-    A detailed design for the engineer, identifying the classes and functions in the module.
+    A raw JSON object matching the SystemDesign schema, listing all modules with their
+    class names, descriptions, key methods, and dependencies.
   agent: engineering_lead
-  output_file: output/{module_name}_design.md
-
-code_task:
-  description: >
-    Write a python module that implements the design described by the engineering lead, in order to achieve the requirements.
-    Here are the requirements: {requirements}
-  expected_output: >
-    A python module that implements the design and achieves the requirements.
-    IMPORTANT: Output ONLY the raw Python code without any markdown formatting, code block delimiters, or backticks.
-    The output should be valid Python code that can be directly saved to a file and executed.
-  agent: backend_engineer
   context:
-    - design_task
-  output_file: output/{module_name}
-
-frontend_task:
-  description: >
-    Write a gradio UI in a module app.py that demonstrates the given backend class in {module_name}.
-    Assume there is only 1 user, and keep the UI very simple indeed - just a prototype or demo.
-    Here are the requirements: {requirements}
-  expected_output: >
-    A gradio UI in module app.py that demonstrates the given backend class.
-    The file should be ready so that it can be run as-is, in the same directory as the backend module, and it should import the backend class from {module_name}.
-    IMPORTANT: Output ONLY the raw Python code without any markdown formatting, code block delimiters, or backticks.
-    The output should be valid Python code that can be directly saved to a file and executed.
-  agent: frontend_engineer
-  context:
-    - code_task
-  output_file: output/app.py
-
-test_task:
-  description: >
-    Write unit tests for the given backend module {module_name} and create a test_{module_name} in the same directory as the backend module.
-  expected_output: >
-    A test_{module_name} module that tests the given backend module.
-    IMPORTANT: Output ONLY the raw Python code without any markdown formatting, code block delimiters, or backticks.
-    The output should be valid Python code that can be directly saved to a file and executed.
-  agent: test_engineer
-  context:
-    - code_task
-  output_file: output/test_{module_name}
+    - requirements_task
